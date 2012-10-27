@@ -1,10 +1,8 @@
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -40,6 +38,12 @@ public class Proxy {
 		// is sent to a new requestThread
 		Socket client = null;
 		
+		// number of threads
+		int numThreads = 0;
+		
+		// This will store a new RequestThread
+		Thread request = null;
+		
 		// first open the ServerSocket so that requests can be listened for
 		ServerSocket server = null;
 		try {
@@ -55,17 +59,15 @@ public class Proxy {
 		try {
 			client = server.accept();
 			
-			PrintWriter out = new PrintWriter(client.getOutputStream(), true);
-			BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-			
-			String clientInput;
-			while((clientInput = in.readLine()) != null)
-			{
-				System.out.println(clientInput);
+			try {
+				request = new Thread(new RequestThread(numThreads, client, dnsCache));
+			} catch (IOException e) {
+				System.err.println("ERROR: IO Problem creating thread");
+				System.err.println(e.getMessage());
+				System.exit(1);
 			}
-			out.close();
-			in.close();
-			client.close(); // TODO spawn a request thread here
+			
+			
 		} catch (IOException e1) {
 			System.err.println("ERROR: Problem accepting client request");
 			System.exit(1);
