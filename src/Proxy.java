@@ -1,4 +1,7 @@
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -40,6 +43,7 @@ public class Proxy {
 		// first open the ServerSocket so that requests can be listened for
 		ServerSocket server = null;
 		try {
+			System.out.println("Starting Proxy Server on port " + PORT);
 			server = new ServerSocket(PORT);
 		} catch (IOException e) {
 			System.err.println("ERROR: Couldn't open port " + PORT);
@@ -50,6 +54,17 @@ public class Proxy {
 		// when a request is found spawn a new thread
 		try {
 			client = server.accept();
+			
+			PrintWriter out = new PrintWriter(client.getOutputStream(), true);
+			BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+			
+			String clientInput;
+			while((clientInput = in.readLine()) != null)
+			{
+				System.out.println(clientInput);
+			}
+			out.close();
+			in.close();
 			client.close(); // TODO spawn a request thread here
 		} catch (IOException e1) {
 			System.err.println("ERROR: Problem accepting client request");
@@ -58,6 +73,7 @@ public class Proxy {
 		
 		// Clean up
 		try {
+			System.out.println("Shutting down Proxy Server on port " + PORT);
 			server.close();
 		} catch (IOException e) {
 			System.err.println("ERROR: Problem closing socket on port " + PORT);
