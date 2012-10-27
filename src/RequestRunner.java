@@ -5,6 +5,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.Map;
@@ -35,13 +36,23 @@ public class RequestRunner implements Runnable{
 	 * asynchronous communication between the server and the client.
 	 */
 	
+	private Map<String, InetAddress> dnsCache;
+	
 	private int id; // used to differentiate between threads. Really more for debugging
 	private Socket clientSocket; // client that was accepted
+	private Socket hostSocket; // socket that will be accepted
+	
+	// buffers used
+	BufferedReader bis;
+	PrintWriter sos;
+	InputStream sis;
+	OutputStream bos;
 	
 	public RequestRunner(int id, Socket client, Map<String, InetAddress> dnsCache) throws IOException
 	{
 		this.id = id;
 		this.clientSocket = client;
+		this.dnsCache = dnsCache;
 	}
 	
 	/*
@@ -94,7 +105,10 @@ public class RequestRunner implements Runnable{
 	@Override
 	public void run() {
 		try{
-			BufferedReader bis = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+			Thread watcher = new Thread(new InterruptRunner(Thread.currentThread(), clientSocket, hostSocket, bis, bos, sis, sos));
+			watcher.start();
+			
+			bis = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 			
 			// read the request
 			System.out.println("Thread " + id + ": Reading the request");
@@ -109,7 +123,7 @@ public class RequestRunner implements Runnable{
 					break;
 				
 			}
-			
+				
 			String request = requestBuilder.toString();
 			
 			if(request.length() <= 0)
@@ -125,19 +139,24 @@ public class RequestRunner implements Runnable{
 			int end = request.indexOf("\n", start);
 			String host = request.substring(start, end-1);
 			System.out.println("Thread " + id + ": Connecting to host " + host);
+
+			InetAddress addr = dnsLookup(host, dnsCache);
 			
 			// forward response from the proxy to the server
 			// TODO replace this with the dns cacheing code
-			Socket hostSocket = new Socket(host, 80);
+			hostSocket = new Socket();
+			hostSocket.bind(null);
+			hostSocket.connect(new InetSocketAddress(host, 80), 500);
+
 			
-			PrintWriter sos = new PrintWriter(hostSocket.getOutputStream(), true);
+			sos = new PrintWriter(hostSocket.getOutputStream(), true);
 			sos.print(request);
 			sos.flush();
 			
 			// forward the response from the server to the browser
 			
-			InputStream sis = hostSocket.getInputStream();
-			OutputStream bos = clientSocket.getOutputStream();
+			sis = hostSocket.getInputStream();
+			bos = clientSocket.getOutputStream();
 			
 			int n = 0;
 			byte[] buffer = new byte[100000];
