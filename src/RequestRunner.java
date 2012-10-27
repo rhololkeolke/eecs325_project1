@@ -71,6 +71,12 @@ public class RequestRunner implements Runnable{
 		clientIn.readLine(); // ignore this line
 		hostLine = clientIn.readLine();
 		
+		if(hostLine == null)
+		{
+			cleanUp();
+			throw new IOException("Couldn't read any headers");
+		}
+				
 		// extract the host name
 		// first split on : giving three strings
 		//        "Host" " <hostname>" "port"
@@ -85,8 +91,15 @@ public class RequestRunner implements Runnable{
 		
 		InetAddress serverAddr = dnsLookup(host, dnsCache);
 		
+		System.out.println("Thread " + this.id + " host has ip address of " + serverAddr.getHostAddress());
+		
 		try {
+			System.out.println("Opening a socket to host " + host + " on port 80");
 			server = new Socket(host, 80);
+			
+			System.out.println("ip.dst == " + server.getInetAddress().getHostAddress() + 
+					           " and tcp.dstport == " + server.getPort() +
+					           " and tcp.srcport == " + server.getLocalPort());
 			
 			serverOut = new PrintWriter(server.getOutputStream(), true);
 			serverIn = new BufferedReader(new InputStreamReader(server.getInputStream()));
@@ -136,10 +149,12 @@ public class RequestRunner implements Runnable{
 		{
 			addr = dnsLookup(host); // lookup via the old fashioned way
 			dnsCache.put(host,addr); // save the entry for future use
+			System.out.println("Thread " + id + " New address was added to the cache");
 			return addr;
 		}
 		else
 		{
+			System.out.println("Thread " + id + " This address was in the cache");
 			return addr;
 		}
 	}
@@ -159,7 +174,21 @@ public class RequestRunner implements Runnable{
 	 */
 	@Override
 	public void run() {
-		// TODO This is where two forwarding threads are spawned
+		Thread client2server = new Thread(new ForwardingRunner("client2server" + id, clientIn, serverOut));
+		Thread server2client = new Thread(new ForwardingRunner("server2client" + id, serverIn, clientOut));
+		
+		server2client.start();
+		client2server.start();
+		
+		// run while there is still data to deal with
+		while(client2server.isAlive() && server2client.isAlive() && !Thread.currentThread().isInterrupted())
+		{
+			try {
+				Thread.sleep(100); // take a nap so the CPU isn't all used up
+			} catch (InterruptedException e) {
+				break;
+			}
+		}
 		
 		try {
 			cleanUp();

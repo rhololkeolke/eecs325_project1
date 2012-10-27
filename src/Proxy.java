@@ -1,8 +1,9 @@
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,7 +33,9 @@ public class Proxy {
 	
 	final static int PORT = 9090;
 	
-	public static void main(String[] args) {
+	public static boolean quit = false; // this doesn't need to be volatile because only one thread will update it
+	
+	public static void main(String[] args) throws IOException {
 		
 		// this will store the accepted client connection before it
 		// is sent to a new requestThread
@@ -55,28 +58,39 @@ public class Proxy {
 			server = new ServerSocket(PORT);
 		} catch (IOException e) {
 			System.err.println("ERROR: Couldn't open port " + PORT);
-			System.exit(1);
+			quit = true; // will skip the accept and go straight to clean up
 		}
 		
-		// Listen for client requests
-		// when a request is found spawn a new thread
-		try {
-			client = server.accept();
-			
+		
+		System.out.println("Press Ctrl-D to exit");
+		Thread inputWatcher = new Thread(new InputWatcherRunner(quit, server));
+		inputWatcher.start();
+		
+		while(!quit)
+		{
+			// Listen for client requests
+			// when a request is found spawn a new thread
 			try {
-				request = new Thread(new RequestRunner(watcherRunner.numThreads(), client, dnsCache));
-				request.start();
-				watcherRunner.addThread(request);
-			} catch (IOException e) {
-				System.err.println("ERROR: IO Problem creating thread");
-				System.err.println(e.getMessage());
-				System.exit(1);
+				System.out.println("Listening for a request");
+				client = server.accept();
+				
+				System.out.println("Got a request");
+				
+				try {
+					System.out.println("Spawning a thread for that request");
+					request = new Thread(new RequestRunner(watcherRunner.numThreads(), client, dnsCache));
+					request.start();
+					watcherRunner.addThread(request);
+				} catch (IOException e) {
+					System.err.println("ERROR: IO Problem creating thread");
+					System.err.println(e.getMessage());
+				}
+				
+				
+			} catch (IOException e1) {
+				System.err.println("ERROR: Problem accepting client request");
+				break;
 			}
-			
-			
-		} catch (IOException e1) {
-			System.err.println("ERROR: Problem accepting client request");
-			System.exit(1);
 		}
 		
 		// Clean up
@@ -96,5 +110,7 @@ public class Proxy {
 			e.printStackTrace();
 		}
 	}
+	
+
 
 }
