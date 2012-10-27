@@ -37,10 +37,18 @@ public class SimpleProxy {
 				
 				String browserRequest = browserRequestBuilder.toString();
 				
+				if(browserRequest.length() <= 0)
+				{
+					System.out.println("browserRequest has length of 0. Skipping this request");
+					continue;
+				}
+				
 				// extract the host to connect to
 				System.out.println("Extracting the host");
 				int start = browserRequest.indexOf("Host: ") + 6;
 				int end = browserRequest.indexOf("\n", start);
+				System.out.println("request length: " + browserRequest.length());
+				System.out.println("start: " + start + " end: " + end);
 				String host = browserRequest.substring(start, end-1);
 				System.out.println("Connecting to host " + host);
 				
@@ -69,6 +77,7 @@ public class SimpleProxy {
 					if(n > 0)
 					{
 						bos.write(buffer, 0, n);
+						bos.flush();
 					}
 				} while (n > 0);
 				

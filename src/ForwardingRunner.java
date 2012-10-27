@@ -1,5 +1,7 @@
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 
 
@@ -20,33 +22,37 @@ public class ForwardingRunner implements Runnable {
 	 */
 
 	// The data from the reader is echoes to the writer
-	private BufferedReader in;
-	private PrintWriter out;
+	private InputStream is;
+	private OutputStream os;
 	
 	private String name;
 	
-	public ForwardingRunner(String name, BufferedReader in, PrintWriter out)
+	public ForwardingRunner(String name, InputStream is, OutputStream os)
 	{
 		this.name = name;
-		this.in = in;
-		this.out = out;
+		this.is = is;
+		this.os = os;
 	}
 
 	@Override
 	public void run() {
 		
-		String inputLine;
-		try {
-			while((inputLine = in.readLine()) != null)
-			{
-				out.print(inputLine + "\r\n");
-				System.out.print(this.name + ": " + inputLine + "\r\n");
-			}
-		} catch (IOException e) {
-			System.err.println(this.name + " buffer closed. Ending thread");
-		}
+		byte[] buffer = new byte[10000];
+		int n = 0;
 
-		
+		try {
+			do {
+				n = is.read(buffer);
+				System.out.println(name + ": Receiving " + n + " bytes");
+				if (n > 0) {
+					os.write(buffer, 0, n);
+				}
+			} while( n > 0);
+			
+			os.flush();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 	
 }

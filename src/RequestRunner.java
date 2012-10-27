@@ -1,12 +1,13 @@
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 
 public class RequestRunner implements Runnable{
@@ -41,10 +42,18 @@ public class RequestRunner implements Runnable{
 	private PrintWriter clientOut;
 	private BufferedReader clientIn;
 	
+	// streams used by client
+	private InputStream cis;
+	private OutputStream cos;
+	
 	// socket and buffers used to contact server
 	private Socket server;
 	private PrintWriter serverOut;
 	private BufferedReader serverIn;
+	
+	// streams used to contact server
+	private InputStream sis;
+	private OutputStream sos;
 	
 	// sets how big of a buffer there should be
 	private final static int READAHEAD = 100;
@@ -57,6 +66,9 @@ public class RequestRunner implements Runnable{
 		try {
 			clientOut = new PrintWriter(client.getOutputStream(), true);
 			clientIn = new BufferedReader(new InputStreamReader(client.getInputStream()));
+			
+			cis = client.getInputStream();
+			cos = client.getOutputStream();
 		} catch (IOException e) {
 			cleanUp();
 			throw e;
@@ -103,6 +115,9 @@ public class RequestRunner implements Runnable{
 			
 			serverOut = new PrintWriter(server.getOutputStream(), true);
 			serverIn = new BufferedReader(new InputStreamReader(server.getInputStream()));
+			
+			sis = server.getInputStream();
+			sos = server.getOutputStream();
 		} catch (IOException e) {
 			cleanUp();
 			throw e;
@@ -122,6 +137,10 @@ public class RequestRunner implements Runnable{
 			clientOut.close();
 		if(clientIn != null)
 			clientIn.close();
+		if(cis != null)
+			cis.close();
+		if(cos != null)
+			cos.close();
 		if(client != null)
 			client.close();
 		
@@ -131,6 +150,10 @@ public class RequestRunner implements Runnable{
 			serverOut.close();
 		if(serverIn != null)
 			serverIn.close();
+		if(sis != null)
+			sis.close();
+		if(sos != null)
+			sos.close();
 		if(server != null)
 			server.close();
 	}
@@ -174,8 +197,8 @@ public class RequestRunner implements Runnable{
 	 */
 	@Override
 	public void run() {
-		Thread client2server = new Thread(new ForwardingRunner("client2server" + id, clientIn, serverOut));
-		Thread server2client = new Thread(new ForwardingRunner("server2client" + id, serverIn, clientOut));
+		Thread client2server = new Thread(new ForwardingRunner("client2server" + id, cis, sos));
+		Thread server2client = new Thread(new ForwardingRunner("server2client" + id, sis, cos));
 		
 		server2client.start();
 		client2server.start();
