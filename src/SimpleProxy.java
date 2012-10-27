@@ -1,11 +1,11 @@
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.LinkedList;
-import java.util.List;
 
 
 public class SimpleProxy {
@@ -57,18 +57,21 @@ public class SimpleProxy {
 				// forward the response from the server to the browser
 				System.out.println("Forwarding the response from the server to the browser");
 				
-				BufferedReader sis = new BufferedReader(new InputStreamReader(hostSocket.getInputStream()));
-				PrintWriter bos = new PrintWriter(clientSocket.getOutputStream(), true);
+				InputStream sis = hostSocket.getInputStream();
+				OutputStream bos = clientSocket.getOutputStream();
 				
-				String sLine;
-				while((sLine = sis.readLine()) != null)
-				{
-					System.out.println(sLine + "\r");
-					bos.println(sLine + "\r");
-					
-					if(sLine.equals(""))
-						break;
-				}
+
+				int n = 0;
+				byte[] buffer = new byte[10000];
+				do {
+					n = sis.read(buffer);
+					System.out.println("Receving " + n + " bytes");
+					if(n > 0)
+					{
+						bos.write(buffer, 0, n);
+					}
+				} while (n > 0);
+				
 				
 				
 				bis.close();
