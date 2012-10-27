@@ -159,8 +159,15 @@ public class RequestThread implements Runnable{
 	 */
 	@Override
 	public void run() {
-		// TODO Auto-generated method stub
+		// TODO This is where two forwarding threads are spawned
 		
+		try {
+			cleanUp();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		System.out.println("Thread " + id + " is finished");
 	}
 
 }
