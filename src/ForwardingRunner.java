@@ -1,5 +1,5 @@
 
-public class ForwardingThread implements Runnable {
+public class ForwardingRunner implements Runnable {
 	/*
 	 * Class: ForwardingThread
 	 * 
@@ -15,7 +15,7 @@ public class ForwardingThread implements Runnable {
 	 * one socket to another.
 	 */
 
-	public ForwardingThread()
+	public ForwardingRunner()
 	{
 		
 	}

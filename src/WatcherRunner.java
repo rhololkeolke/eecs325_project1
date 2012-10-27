@@ -3,7 +3,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 
-public class WatcherThread implements Runnable{
+public class WatcherRunner implements Runnable{
 	/*
 	 * Class: WatcherThread
 	 * 
@@ -23,7 +23,7 @@ public class WatcherThread implements Runnable{
 
 	private List<Thread> threads;
 
-	public WatcherThread()
+	public WatcherRunner()
 	{
 		// make the list thread safe
 		threads = Collections.synchronizedList(new LinkedList<Thread>());

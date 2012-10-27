@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 
-public class RequestThread implements Runnable{
+public class RequestRunner implements Runnable{
 	/*
 	 * Class:   RequestThread
 	 * 
@@ -49,7 +49,7 @@ public class RequestThread implements Runnable{
 	// sets how big of a buffer there should be
 	private final static int READAHEAD = 100;
 	
-	public RequestThread(int id, Socket client, Map<String, InetAddress> dnsCache) throws IOException
+	public RequestRunner(int id, Socket client, Map<String, InetAddress> dnsCache) throws IOException
 	{
 		this.id = id;
 		this.client = client;

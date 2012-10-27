@@ -41,7 +41,7 @@ public class Proxy {
 		// watcher thread
 		// keeps track of other threads so that
 		// they can be removed when they finish
-		WatcherThread watcherRunner = new WatcherThread();
+		WatcherRunner watcherRunner = new WatcherRunner();
 		Thread watcher = new Thread(watcherRunner);
 		watcher.start();
 		
@@ -64,7 +64,7 @@ public class Proxy {
 			client = server.accept();
 			
 			try {
-				request = new Thread(new RequestThread(watcherRunner.numThreads(), client, dnsCache));
+				request = new Thread(new RequestRunner(watcherRunner.numThreads(), client, dnsCache));
 				request.start();
 				watcherRunner.addThread(request);
 			} catch (IOException e) {
