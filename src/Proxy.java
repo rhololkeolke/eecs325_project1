@@ -102,6 +102,11 @@ public class Proxy {
 			System.out.println("Waiting for request threads to die");
 			watcher.join();
 			System.out.println("All done!");
+			System.out.println("\n\n\nCache Results");
+			for(String key : dnsCache.keySet())
+			{
+				System.out.println(key + " - " + dnsCache.get(key));
+			}
 		} catch (IOException e) {
 			System.err.println("ERROR: Problem closing socket on port " + PORT);
 			System.exit(1);

@@ -36,92 +36,12 @@ public class RequestRunner implements Runnable{
 	 */
 	
 	private int id; // used to differentiate between threads. Really more for debugging
-	private Socket client; // client that was accepted
-	
-	// buffers used by client
-	private PrintWriter clientOut;
-	private BufferedReader clientIn;
-	
-	// streams used by client
-	private InputStream cis;
-	private OutputStream cos;
-	
-	// socket and buffers used to contact server
-	private Socket server;
-	private PrintWriter serverOut;
-	private BufferedReader serverIn;
-	
-	// streams used to contact server
-	private InputStream sis;
-	private OutputStream sos;
-	
-	// sets how big of a buffer there should be
-	private final static int READAHEAD = 100;
+	private Socket clientSocket; // client that was accepted
 	
 	public RequestRunner(int id, Socket client, Map<String, InetAddress> dnsCache) throws IOException
 	{
 		this.id = id;
-		this.client = client;
-		
-		try {
-			clientOut = new PrintWriter(client.getOutputStream(), true);
-			clientIn = new BufferedReader(new InputStreamReader(client.getInputStream()));
-			
-			cis = client.getInputStream();
-			cos = client.getOutputStream();
-		} catch (IOException e) {
-			cleanUp();
-			throw e;
-		}
-		
-		// mark the beginning of the stream so that it can be returned to after
-		// figuring out the domain name
-		clientIn.mark(READAHEAD);
-		
-		// find the host directive in the header
-		String hostLine;
-		clientIn.readLine(); // ignore this line
-		hostLine = clientIn.readLine();
-		
-		if(hostLine == null)
-		{
-			cleanUp();
-			throw new IOException("Couldn't read any headers");
-		}
-				
-		// extract the host name
-		// first split on : giving three strings
-		//        "Host" " <hostname>" "port"
-		// take the second string and delete the
-		// space at the front of it using substr
-		String host = hostLine.split(":")[1].substring(1);
-		
-		System.out.println("Thread " + this.id + " request for " + host);
-		
-		// reset to the beginning of the input from the client
-		clientIn.reset();
-		
-		InetAddress serverAddr = dnsLookup(host, dnsCache);
-		
-		System.out.println("Thread " + this.id + " host has ip address of " + serverAddr.getHostAddress());
-		
-		try {
-			System.out.println("Opening a socket to host " + host + " on port 80");
-			server = new Socket(host, 80);
-			
-			System.out.println("ip.dst == " + server.getInetAddress().getHostAddress() + 
-					           " and tcp.dstport == " + server.getPort() +
-					           " and tcp.srcport == " + server.getLocalPort());
-			
-			serverOut = new PrintWriter(server.getOutputStream(), true);
-			serverIn = new BufferedReader(new InputStreamReader(server.getInputStream()));
-			
-			sis = server.getInputStream();
-			sos = server.getOutputStream();
-		} catch (IOException e) {
-			cleanUp();
-			throw e;
-		}
+		this.clientSocket = client;
 	}
 	
 	/*
@@ -131,31 +51,7 @@ public class RequestRunner implements Runnable{
 	 */
 	private void cleanUp() throws IOException
 	{
-		// close client socket
-		// and associated buffers
-		if(clientOut != null)
-			clientOut.close();
-		if(clientIn != null)
-			clientIn.close();
-		if(cis != null)
-			cis.close();
-		if(cos != null)
-			cos.close();
-		if(client != null)
-			client.close();
-		
-		// close server socket
-		// and associated buffers
-		if(serverOut != null)
-			serverOut.close();
-		if(serverIn != null)
-			serverIn.close();
-		if(sis != null)
-			sis.close();
-		if(sos != null)
-			sos.close();
-		if(server != null)
-			server.close();
+
 	}
 	
 	/*
@@ -197,29 +93,75 @@ public class RequestRunner implements Runnable{
 	 */
 	@Override
 	public void run() {
-		Thread client2server = new Thread(new ForwardingRunner("client2server" + id, cis, sos));
-		Thread server2client = new Thread(new ForwardingRunner("server2client" + id, sis, cos));
-		
-		server2client.start();
-		client2server.start();
-		
-		// run while there is still data to deal with
-		while(client2server.isAlive() && server2client.isAlive() && !Thread.currentThread().isInterrupted())
-		{
-			try {
-				Thread.sleep(100); // take a nap so the CPU isn't all used up
-			} catch (InterruptedException e) {
-				break;
+		try{
+			BufferedReader bis = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+			
+			// read the request
+			System.out.println("Thread " + id + ": Reading the request");
+			StringBuilder requestBuilder = new StringBuilder();
+			String bLine;
+			while((bLine = bis.readLine()) != null)
+			{
+				requestBuilder.append(bLine + "\r\n");
+				//System.out.println("Thread " + id + ": " + bLine + "\r");
+				
+				if(bLine.equals("")) // HTTP headers end with a blank line
+					break;
+				
 			}
-		}
-		
-		try {
-			cleanUp();
+			
+			String request = requestBuilder.toString();
+			
+			if(request.length() <= 0)
+			{
+				System.err.println("\n\tThread " + id + ": " + "Request has length of 0. Skipping this request.\n");
+				bis.close();
+				clientSocket.close();
+				return;
+			}
+			
+			// extract the host to connect to
+			int start = request.indexOf("Host: ") + 6;
+			int end = request.indexOf("\n", start);
+			String host = request.substring(start, end-1);
+			System.out.println("Thread " + id + ": Connecting to host " + host);
+			
+			// forward response from the proxy to the server
+			// TODO replace this with the dns cacheing code
+			Socket hostSocket = new Socket(host, 80);
+			
+			PrintWriter sos = new PrintWriter(hostSocket.getOutputStream(), true);
+			sos.print(request);
+			sos.flush();
+			
+			// forward the response from the server to the browser
+			
+			InputStream sis = hostSocket.getInputStream();
+			OutputStream bos = clientSocket.getOutputStream();
+			
+			int n = 0;
+			byte[] buffer = new byte[100000];
+			do {
+				n = sis.read(buffer);
+				System.out.println("Thread " + id + ": Receiving " + n + " bytes");
+				if(n > 0)
+				{
+					bos.write(buffer, 0, n);
+					bos.flush();
+				}
+			} while (n > 0);
+			
+			bis.close();
+			bos.close();
+			clientSocket.close();
+			
+			sis.close();
+			sos.close();
+			hostSocket.close();
+			
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		System.out.println("Thread " + id + " is finished");
 	}
 
 }
