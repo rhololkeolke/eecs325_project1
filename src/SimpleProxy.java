@@ -11,77 +11,77 @@ import java.util.List;
 public class SimpleProxy {
 	
 	public static void main(String[] args) {
-		
-		Socket client = null;
-		Socket server = null;
-		ServerSocket listener = null;
 
 		try {
-			listener = new ServerSocket(9090);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		
-		try {
-			client = listener.accept();
+			System.out.println("Starting the SimpleProxy");
 			
-			BufferedReader clientIn = new BufferedReader(new InputStreamReader(client.getInputStream()));
-			PrintWriter clientOut = new PrintWriter(client.getOutputStream(), true);
+			ServerSocket serverSocket = new ServerSocket(9090);
 			
-			List<String> data = new LinkedList<String>(); 
+			while(true) {
+				Socket clientSocket = serverSocket.accept();
+				
+				BufferedReader bis = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+				
+				// read the request
+				System.out.println("Reading the request");
+				StringBuilder browserRequestBuilder = new StringBuilder();
+				String bLine;
+				while((bLine = bis.readLine()) != null)
+				{
+					browserRequestBuilder.append(bLine + "\r\n");
+					System.out.println(bLine + "\r");
 					
-			System.out.println("\n\nStarting to print client data\n\n");
-			String clientLine;
-			while((clientLine = clientIn.readLine()) != null && !clientLine.equals(""))
-			{
-				data.add(clientLine);
-				System.out.println(clientLine + "ZzZzZ");
+					if(bLine.equals("")) // HTTP headers end with a blank line
+						break;
+				}
+				
+				String browserRequest = browserRequestBuilder.toString();
+				
+				// extract the host to connect to
+				System.out.println("Extracting the host");
+				int start = browserRequest.indexOf("Host: ") + 6;
+				int end = browserRequest.indexOf("\n", start);
+				String host = browserRequest.substring(start, end-1);
+				System.out.println("Connecting to host " + host);
+				
+				// forward the response from the proxy to the server
+				System.out.println("Forwarding the response to the server");
+				Socket hostSocket = new Socket(host, 80);
+				
+				System.out.println("ip.dst == " + hostSocket.getInetAddress().getHostAddress() + " and tcp.srcport == " + hostSocket.getLocalPort());
+				
+				PrintWriter sos = new PrintWriter(hostSocket.getOutputStream(), true);
+				sos.print(browserRequest);
+				sos.flush();
+				
+				// forward the response from the server to the browser
+				System.out.println("Forwarding the response from the server to the browser");
+				
+				BufferedReader sis = new BufferedReader(new InputStreamReader(hostSocket.getInputStream()));
+				PrintWriter bos = new PrintWriter(clientSocket.getOutputStream(), true);
+				
+				String sLine;
+				while((sLine = sis.readLine()) != null)
+				{
+					System.out.println(sLine + "\r");
+					bos.println(sLine + "\r");
+					
+					if(sLine.equals(""))
+						break;
+				}
+				
+				
+				bis.close();
+				bos.close();
+				clientSocket.close();
+			
+				sis.close();
+				sos.close();
+				hostSocket.close();
 			}
-			
-			System.out.println("\n\nOpening new socket\n\n");
-			server = new Socket("www.google.com", 80);
-			
-			BufferedReader serverIn = new BufferedReader(new InputStreamReader(server.getInputStream()));
-			PrintWriter serverOut = new PrintWriter(server.getOutputStream(), true);
-			
-			System.out.println("\n\nPrinting data to server socket\n\n");
-			for(int i=0; i<data.size(); i++)
-			{
-				serverOut.print(data.get(i) + "\r");
-			}
-			
-			data = new LinkedList<String>();
-			
-			System.out.println("\n\nReceving data from server\n\n");
-			String serverLine;
-			while((serverLine = serverIn.readLine()) != null && !serverLine.equals(""))
-			{
-				data.add(serverLine);
-				System.out.println(serverLine);
-			}
-			
-			/*
-			serverOut.println("GET http://www.google.com/ HTTP/1.1\r");
-			serverOut.println("Host: google.com\r");
-			serverOut.println("\r");
-			
-			String serverLine;
-			while((serverLine = serverIn.readLine()) != null)
-			{
-				System.out.println(serverLine);
-			}*/
-			
-			clientIn.close();
-			clientOut.close();
-			client.close();
-			
-			serverIn.close();
-			serverOut.close();
-			server.close();
-			
-			
-			listener.close();
+
+				
+			//serverSocket.close();
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
