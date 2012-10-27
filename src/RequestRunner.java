@@ -105,9 +105,7 @@ public class RequestRunner implements Runnable{
 	@Override
 	public void run() {
 		try{
-			Thread watcher = new Thread(new InterruptRunner(Thread.currentThread(), clientSocket, hostSocket, bis, bos, sis, sos));
-			watcher.start();
-			
+
 			bis = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 			
 			// read the request
@@ -143,7 +141,6 @@ public class RequestRunner implements Runnable{
 			InetAddress addr = dnsLookup(host, dnsCache);
 			
 			// forward response from the proxy to the server
-			// TODO replace this with the dns cacheing code
 			hostSocket = new Socket();
 			hostSocket.bind(null);
 			hostSocket.connect(new InetSocketAddress(host, 80), 500);
