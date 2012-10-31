@@ -49,8 +49,11 @@ public class Proxy2 {
   private static InetAddress parseHeader(String header) throws UnknownHostException
   {
 	  int start, end;
-	  start = header.indexOf("Host: ") + 6;
-	  end = header.indexOf('\n', start);
+	  if((start = header.indexOf("Host: ") + 6) < 0)
+		  return null;
+	  
+	  if((end = header.indexOf('\n', start)) < 0)
+		  return null;
 	  
 	  String hostName = header.substring(start, end-1);
 	  
@@ -76,13 +79,20 @@ public class Proxy2 {
 			  final InputStream streamFromClient = client.getInputStream();
 		      final OutputStream streamToClient = client.getOutputStream();
 		              
-		      InetAddress hostAddress = InetAddress.getByName("localhost");
+		      InetAddress hostAddress = null;
+		      while(hostAddress == null)
+		      {
+		    	  if((bytesRead = streamFromClient.read(request)) != -1)
+		    	  {
+		    		  hostAddress = parseHeader(new String(request, 0, bytesRead));
+		    	  }
+		      }
 		      		      
 		      // Make a connection to the real server.
 		      // If we cannot connect to the server, send an error to the
 		      // client, disconnect, and continue waiting for connections.
 		      try {
-		        server = new Socket(hostAddress, 9091);
+		        server = new Socket(hostAddress, 80);
 		      } catch (IOException e) {
 		        PrintWriter out = new PrintWriter(streamToClient);
 		        out.print("Proxy server cannot connect to " + hostAddress.getHostName() + ":"
@@ -119,7 +129,7 @@ public class Proxy2 {
 		        }
 		      };
 		
-		      /*// before starting write the header message out to the server
+		      // before starting write the header message out to the server
 		      try{
 		      	streamToServer.write(request, 0, bytesRead);
 		      	streamToServer.flush();
@@ -129,7 +139,7 @@ public class Proxy2 {
 		      	streamToClient.close();
 		      	streamFromClient.close();
 		      	throw e;
-		      }*/
+		      }
 		  	// Start the client-to-server request thread running
 		  	t.start();
 		
