@@ -1,15 +1,24 @@
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URL;
 import java.net.UnknownHostException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Proxy {
 	
 	public final static int PORT = 9090;
+	
+	public final static ConcurrentMap<String, InetAddress> dnsCache = new ConcurrentHashMap<String, InetAddress>();
 	
 	public static void main(String[] args) {
 		
@@ -37,6 +46,175 @@ public class Proxy {
 			// simultaneously
 			Thread requestThread = new RequestThread(clientSocket);
 			requestThread.start();
+		}
+	}
+	
+	public static class RequestThread extends Thread{
+		public final Socket clientSocket;
+		
+		public static final Pattern requestPattern = Pattern.compile("^(\\w+)\\s+(\\S+)\\s+HTTP/(1\\.\\d)\\s*$");
+		public static final Pattern contentLengthPattern = Pattern.compile("^Content-Length:\\s+(\\d+)\\s*$"); // grab the content length (if present) group1 is the number of bytes
+		
+		public RequestThread(Socket c)
+		{
+			clientSocket = c;
+		}
+		
+		public void run() {
+			int bytesRead = 0;
+			final byte[] request = new byte[4096];
+			byte[] reply = new byte[4096];
+			
+			Socket serverSocket = null;
+			try {
+				final InputStream cis = clientSocket.getInputStream(); // this is used for any data not in the header
+				final OutputStream cos = clientSocket.getOutputStream(); 
+				
+				/*
+				 * This section will parse the header and create a new one to send to the server
+				 */
+
+				// the header will be in standard ASCII so its fine to use a BufferedReader
+				BufferedReader cbr = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+				
+				String headerLine;
+				if((headerLine = cbr.readLine()) == null) // null if stream is closed. NOTE: This will block until something is read or stream is closed
+				{
+					//throw new IOException("Error reading request Header 1"); // if nothing was read then nothing else can be done for this request
+					return;
+				}
+				
+				System.out.println("Received header");
+				System.out.println("\t" + headerLine);
+				
+				// parse the first line of the request
+				Matcher headerMatcher = requestPattern.matcher(headerLine);
+				headerMatcher.matches();
+				String verb = headerMatcher.group(1);
+				String url = headerMatcher.group(2);
+				String version = headerMatcher.group(3);
+				
+				
+				if(verb == null || url == null || version == null)
+					throw new IOException("Erorr reading request header 2");
+
+				
+				// parse out the path from the url
+				URL serverUrl = new URL(url);
+				
+				// build the header
+				String newHeaderLine = new String(verb + " " + serverUrl.getPath() + " HTTP/" + version + "\r\n");
+				
+				System.out.println("New Header:");
+				System.out.println("\t" + newHeaderLine);
+				System.out.println("");
+				
+				// Now that the new header is created open a socket to the host in the url on the port specified
+				
+				int port;
+				if((port = serverUrl.getPort()) == -1)
+					port = 80;
+				try{ 
+					serverSocket = new Socket(serverUrl.getHost(), port);
+				} catch (IOException e) {
+					PrintWriter out = new PrintWriter(cos, true);
+					out.println("Proxy server can't connect to " + serverUrl.getHost() + ":" + port + "\n" + e);
+					out.close();
+					clientSocket.close();
+					return;
+				}
+				
+				// setup the input and output streams for the server
+				InputStream sis = serverSocket.getInputStream();
+				OutputStream sos = serverSocket.getOutputStream();
+				
+				// write the new header line to the server
+				sos.write(newHeaderLine.getBytes());
+				sos.flush();
+				
+				// stores the number from the Content-length field of the header
+				// should tell the proxy if there is extra data such as in a POST request
+				int contentLen = 0;
+				
+				// get the rest of the header
+				while(true)
+				{
+					headerLine = cbr.readLine(); // this will block until a full line is available
+					
+					// debugging purposes
+					System.out.println("Received new header line ");
+					System.out.println("\t" + headerLine);
+					
+					// see if this is the content-length line
+					Matcher contentLengthMatcher = contentLengthPattern.matcher(headerLine);
+					if(contentLengthMatcher.matches())
+					{
+						// convert the content length number from a string to an integer
+						contentLen = Integer.parseInt(contentLengthMatcher.group(1));
+					}
+					
+					if(headerLine.matches("^Proxy-Connection:.*"))
+					{
+						System.out.println("Found the proxy-connection line skipping it");
+						continue;
+					}
+					else if(headerLine.equals(""))
+					{
+						sos.write("Connection: close\r\n\r\n".getBytes());
+						
+						// would get the next n bytes where n is the number in content-length
+						System.out.println("Reached end of header");
+						System.out.println("Content-length: " + contentLen);
+						if(contentLen > 0)
+						{
+							while((bytesRead = cis.read(request)) != -1 && contentLen >= 0)
+							{
+								System.out.println("Read " + bytesRead);
+								sos.write(request);
+								sos.flush();
+								contentLen -= bytesRead;
+								System.out.println("Content length remaining: " + contentLen);
+							}
+						}
+						
+						// all done reading the request
+						//cbr.close();
+						break;
+					}
+					else
+					{
+						// if it isn't the end of the header then
+						// simply copy what was received to the server
+						sos.write((headerLine + "\r\n").getBytes());
+						sos.flush();
+					}
+				}
+				
+				try{
+					while((bytesRead = sis.read(reply)) != -1)
+					{
+						cos.write(reply);
+						cos.flush();
+					}
+				} catch (IOException e) {
+					System.err.println("Exception 1 " + e);
+				}
+				
+				clientSocket.close();
+				serverSocket.close();
+
+				return;
+			} catch (IOException e) {
+				System.err.println(e);
+			} finally { // clean up the sockets and streams
+				try{
+					if(serverSocket != null)
+						serverSocket.close();
+					if(clientSocket != null)
+						clientSocket.close();
+				} catch (IOException e) {}
+			}
+			
 		}
 	}
 	
@@ -71,115 +249,24 @@ public class Proxy {
 		
 		System.out.println("Connecting to " + hostname + " on port " + port);
 		
-		InetAddress hostAddress = InetAddress.getByName(hostname);
+		InetAddress hostAddress = lookupDns(hostname);
 		
 		return new Socket(hostAddress, port);
 	}
 	
-	public static class RequestThread extends Thread{
-		public final Socket clientSocket;
+	private static InetAddress lookupDns(String hostname) throws UnknownHostException
+	{
+		InetAddress hostAddress = null;
 		
-		public RequestThread(Socket c)
-		{
-			clientSocket = c;
-		}
+		// if the DNS record is in the cache return it
+		if((hostAddress = dnsCache.get(hostname)) != null)
+			return hostAddress;
 		
-		public void run() {
-			int bytesRead = 0;
-			final byte[] request = new byte[4096];
-			byte[] reply = new byte[4096];
-			
-			Socket serverSocket = null;
-			try {
-				final InputStream cis = clientSocket.getInputStream();
-				final OutputStream cos = clientSocket.getOutputStream();
-				
-				InetAddress hostAddress = null;
-				
-				// keep looping until either the host is
-				// determined as unknown or it has been determined
-				while(serverSocket == null)
-				{
-					if((bytesRead = cis.read(request)) != -1) // quit try to read bytes if -1 (means closed Socket)
-					{
-						try {
-							serverSocket = parseHeader(new String(request, 0, bytesRead));
-						} catch (IOException e) {
-							PrintWriter out = new PrintWriter(cos, true);
-							out.println("Proxy server can't connect\n" + e);
-							out.close();
-							clientSocket.close();
-							return;
-						}
-					}
-				}
-				
-				// get server streams
-				final InputStream sis = serverSocket.getInputStream();
-				final OutputStream sos = serverSocket.getOutputStream();
-				
-				// a thread to read the client's requests and pass them
-				// to the server. This is a separate thread so that 
-				// data from client to server can be processed at the same
-				// time as data from server to the client
-				Thread c2s = new Thread() {
-					public void run() {
-						int bytesRead;
-						try {
-							while((bytesRead = cis.read(request)) != -1)
-							{
-								sos.write(request, 0, bytesRead);
-								sos.flush();
-							}
-						} catch (IOException e) {}
-						
-						// client must have closed the connection
-						// so close the server connection
-						try {
-							sos.close();
-						} catch (IOException e) {}
-					}
-				};
-				
-				// before starting the thread write the header message out to the server
-				try {
-					sos.write(request, 0, bytesRead);
-					sos.flush();
-				} catch (IOException e) {
-					sos.close();
-					sis.close();
-					cos.close();
-					cis.close();
-					throw e;
-				}
-				
-				// start the client 2 server thread
-				c2s.start();
-				
-				// read the server's responses and pass
-				// them to the client
-				try {
-					while((bytesRead = sis.read(reply)) != -1)
-					{
-						cos.write(reply, 0, bytesRead);
-						cos.flush();
-					}
-				} catch (IOException e) {}
-				
-				// the server closed its connection so close the connection
-				// to the client
-				cos.close();
-			} catch (IOException e) {
-				System.err.println(e);
-			} finally { // clean up the sockets and streams
-				try{
-					if(serverSocket != null)
-						serverSocket.close();
-					if(clientSocket != null)
-						clientSocket.close();
-				} catch (IOException e) {}
-			}
-			
-		}
+		// DNS records wasn't in the cache
+		// lookup DNS
+		hostAddress = InetAddress.getByName(hostname);
+		// add the DNS record to the cache for future use
+		dnsCache.put(hostname, hostAddress);
+		return hostAddress;
 	}
 }
