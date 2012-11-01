@@ -1,129 +1,185 @@
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-
+import java.net.UnknownHostException;
 
 public class Proxy {
-	/*
-	 * Class:   Proxy
-	 * 
-	 * Author:    Devin Schwab
-	 * 
-	 * Case ID: dts34
-	 * 
-	 * Course:  EECS 325 - Networks
-	 * 
-	 * Created: 10/26/12
-	 * 
-	 * Description
-	 * ------------
-	 * This class is the main method in my proxy.
-	 * It is responsible for listening for new client requests
-	 * It also responsible for maintaining the DNS cache that is shared
-	 * among all of the request threads.
-	 */
 	
-	// DNS cache shared by all threads
-	static Map<String, InetAddress> dnsCache = new ConcurrentHashMap<String, InetAddress>();
+	public final static int PORT = 9090;
 	
-	final static int PORT = 9090;
-	final static int threadsPerCore = 10;
-	
-	public static boolean quit = false; // this doesn't need to be volatile because only one thread will update it
-	
-	public static void main(String[] args) throws IOException {
+	public static void main(String[] args) {
 		
-		// this will store the accepted client connection before it
-		// is sent to a new requestThread
-		Socket client = null;
-		
-		// watcher thread
-		// keeps track of other threads so that
-		// they can be removed when they finish
-		WatcherRunner watcherRunner = new WatcherRunner();
-		Thread watcher = new Thread(watcherRunner);
-		watcher.start();
-		
-		// Determine the number of threads
-		int threadCount = 0;
-		int cpus = Runtime.getRuntime().availableProcessors();
-		int maxThreads = cpus * threadsPerCore; /// how many threads should be run per core
-		maxThreads = (maxThreads > 0 ? maxThreads : 1); // make sure there is at least one thread
-		
-		// This will execute request threads
-		ExecutorService requestExecutor = new ThreadPoolExecutor(maxThreads,
-				                                                 maxThreads,
-				                                                 1,
-				                                                 TimeUnit.MINUTES,
-				                                                 new ArrayBlockingQueue<Runnable>(maxThreads, true),
-				                                                 new ThreadPoolExecutor.DiscardPolicy());
-		
-		// first open the ServerSocket so that requests can be listened for
-		ServerSocket server = null;
+		System.out.println("Starting proxy on port " + PORT);
 		try {
-			System.out.println("Starting Proxy Server on port " + PORT);
-			server = new ServerSocket(PORT);
+			listen();
 		} catch (IOException e) {
-			System.err.println("ERROR: Couldn't open port " + PORT);
-			quit = true; // will skip the accept and go straight to clean up
+			System.err.println(e);
 		}
+	}
+	
+	public static void listen() throws IOException {
+		
+		// create a socket to listen for requests
+		ServerSocket proxySocket = new ServerSocket(PORT);
+		
+		Socket clientSocket = null;
+		while(true) { // loop until the entire program is killed
+			
+			// this blocks until a request is sent to the server
+			clientSocket = proxySocket.accept();
+			
+			// start a new thread for the request
+			// so that multiple streams can be serviced
+			// simultaneously
+			Thread requestThread = new RequestThread(clientSocket);
+			requestThread.start();
+		}
+	}
+	
+	private static Socket parseHeader(String header) throws IOException
+	{
+		String hostname;
+		int port;
+		int start, end, colon; // markers for start of hostname, end of hostname and start of port (if present)
+		if((start = header.indexOf("Host: ")) < 0)
+			return null;
+		else
+			start += 6;
+		
+		if((end = header.indexOf('\n', start)) < 0)
+			return null;
+		
+		colon = header.indexOf(':', start);
 		
 		
-		System.out.println("Press Ctrl-D to exit");
-		Thread inputWatcher = new Thread(new InputWatcherRunner(quit, server));
-		inputWatcher.start();
-		
-		while(!quit)
+		if(colon >= end)
 		{
-			// Listen for client requests
-			// when a request is found spawn a new thread
-			try {
-				System.out.println("Listening for a request");
-				client = server.accept();
-				
-				System.out.println("Got a request");
-				requestExecutor.submit(new RequestRunner(threadCount, client, dnsCache));
-				threadCount++;
-				
-				
-				
-			} catch (IOException e1) {
-				System.err.println("ERROR: Problem accepting client request");
-				break;
-			}
+			// no port specified
+			hostname = header.substring(start, end-1);
+			port = 80;
+		}
+		else
+		{
+			// port specified
+			hostname = header.substring(start, colon);
+			port = Integer.parseInt(header.substring(colon+1, end-1));
 		}
 		
-		// Clean up
-		try {
-			System.out.println("Shutting down Proxy Server on port " + PORT);
-			server.close();
-			System.out.println("Shutting down Threads");
-			requestExecutor.shutdown();
+		System.out.println("Connecting to " + hostname + " on port " + port);
+		
+		InetAddress hostAddress = InetAddress.getByName(hostname);
+		
+		return new Socket(hostAddress, port);
+	}
+	
+	public static class RequestThread extends Thread{
+		public final Socket clientSocket;
+		
+		public RequestThread(Socket c)
+		{
+			clientSocket = c;
+		}
+		
+		public void run() {
+			int bytesRead = 0;
+			final byte[] request = new byte[4096];
+			byte[] reply = new byte[4096];
 			
+			Socket serverSocket = null;
 			try {
-				if(!requestExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
-					System.out.println("\t Trying to shutdown threads again");
-					requestExecutor.shutdownNow();
+				final InputStream cis = clientSocket.getInputStream();
+				final OutputStream cos = clientSocket.getOutputStream();
+				
+				InetAddress hostAddress = null;
+				
+				// keep looping until either the host is
+				// determined as unknown or it has been determined
+				while(serverSocket == null)
+				{
+					if((bytesRead = cis.read(request)) != -1) // quit try to read bytes if -1 (means closed Socket)
+					{
+						try {
+							serverSocket = parseHeader(new String(request, 0, bytesRead));
+						} catch (IOException e) {
+							PrintWriter out = new PrintWriter(cos, true);
+							out.println("Proxy server can't connect\n" + e);
+							out.close();
+							clientSocket.close();
+							return;
+						}
+					}
 				}
-			} catch (InterruptedException ex) {
-				System.out.println("\t Trying to shutdown threads again");
-				requestExecutor.shutdownNow();
+				
+				// get server streams
+				final InputStream sis = serverSocket.getInputStream();
+				final OutputStream sos = serverSocket.getOutputStream();
+				
+				// a thread to read the client's requests and pass them
+				// to the server. This is a separate thread so that 
+				// data from client to server can be processed at the same
+				// time as data from server to the client
+				Thread c2s = new Thread() {
+					public void run() {
+						int bytesRead;
+						try {
+							while((bytesRead = cis.read(request)) != -1)
+							{
+								sos.write(request, 0, bytesRead);
+								sos.flush();
+							}
+						} catch (IOException e) {}
+						
+						// client must have closed the connection
+						// so close the server connection
+						try {
+							sos.close();
+						} catch (IOException e) {}
+					}
+				};
+				
+				// before starting the thread write the header message out to the server
+				try {
+					sos.write(request, 0, bytesRead);
+					sos.flush();
+				} catch (IOException e) {
+					sos.close();
+					sis.close();
+					cos.close();
+					cis.close();
+					throw e;
+				}
+				
+				// start the client 2 server thread
+				c2s.start();
+				
+				// read the server's responses and pass
+				// them to the client
+				try {
+					while((bytesRead = sis.read(reply)) != -1)
+					{
+						cos.write(reply, 0, bytesRead);
+						cos.flush();
+					}
+				} catch (IOException e) {}
+				
+				// the server closed its connection so close the connection
+				// to the client
+				cos.close();
+			} catch (IOException e) {
+				System.err.println(e);
+			} finally { // clean up the sockets and streams
+				try{
+					if(serverSocket != null)
+						serverSocket.close();
+					if(clientSocket != null)
+						clientSocket.close();
+				} catch (IOException e) {}
 			}
 			
-			for(String key : dnsCache.keySet())
-			{
-				System.out.println(dnsCache.get(key));
-			}
-		} catch (IOException e) {
-			System.err.println("ERROR: Problem closing socket on port " + PORT);
-			System.exit(1);
 		}
 	}
 }
