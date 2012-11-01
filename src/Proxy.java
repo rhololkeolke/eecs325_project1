@@ -32,20 +32,31 @@ public class Proxy {
 	
 	public static void listen() throws IOException {
 		
-		// create a socket to listen for requests
-		ServerSocket proxySocket = new ServerSocket(PORT);
-		
+		ServerSocket proxySocket = null;
 		Socket clientSocket = null;
-		while(true) { // loop until the entire program is killed
+		try{
+			// create a socket to listen for requests
+			proxySocket = new ServerSocket(PORT);
 			
-			// this blocks until a request is sent to the server
-			clientSocket = proxySocket.accept();
-			
-			// start a new thread for the request
-			// so that multiple streams can be serviced
-			// simultaneously
-			Thread requestThread = new RequestThread(clientSocket);
-			requestThread.start();
+			clientSocket = null;
+			while(true) { // loop until the entire program is killed
+				
+				// this blocks until a request is sent to the server
+				clientSocket = proxySocket.accept();
+				
+				// start a new thread for the request
+				// so that multiple streams can be serviced
+				// simultaneously
+				Thread requestThread = new RequestThread(clientSocket);
+				requestThread.start();
+			}
+		} catch (IOException e) {
+			System.err.println("Something went wrong with the listening socket...quitting");
+		} finally {
+			if(proxySocket != null)
+				proxySocket.close();
+			if(clientSocket != null)
+				clientSocket.close();
 		}
 	}
 	
@@ -142,7 +153,6 @@ public class Proxy {
 					headerLine = cbr.readLine(); // this will block until a full line is available
 					
 					// debugging purposes
-					System.out.println("Received new header line ");
 					System.out.println("\t" + headerLine);
 					
 					// see if this is the content-length line
@@ -161,13 +171,15 @@ public class Proxy {
 					else if(headerLine.equals(""))
 					{
 						sos.write("Connection: close\r\n\r\n".getBytes());
+						//sos.write("\r\n".getBytes());
+						sos.flush();
 						
 						// would get the next n bytes where n is the number in content-length
 						System.out.println("Reached end of header");
 						System.out.println("Content-length: " + contentLen);
 						if(contentLen > 0)
 						{
-							while((bytesRead = cis.read(request)) != -1 && contentLen >= 0)
+							while((bytesRead = cis.read(request)) != -1 && contentLen > 0)
 							{
 								System.out.println("Read " + bytesRead);
 								sos.write(request);
@@ -178,7 +190,7 @@ public class Proxy {
 						}
 						
 						// all done reading the request
-						//cbr.close();
+						System.out.println();
 						break;
 					}
 					else
@@ -193,11 +205,13 @@ public class Proxy {
 				try{
 					while((bytesRead = sis.read(reply)) != -1)
 					{
+						System.out.println("Received " + bytesRead + " bytes");
+						//System.out.println(new String(reply, 0, bytesRead));
 						cos.write(reply);
 						cos.flush();
 					}
 				} catch (IOException e) {
-					System.err.println("Exception 1 " + e);
+					System.err.println("Exception 1\n\t" + e);
 				}
 				
 				clientSocket.close();
