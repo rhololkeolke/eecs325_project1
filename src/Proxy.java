@@ -89,135 +89,141 @@ public class Proxy {
 				BufferedReader cbr = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 				
 				String headerLine;
-				if((headerLine = cbr.readLine()) == null) // null if stream is closed. NOTE: This will block until something is read or stream is closed
-				{
-					//throw new IOException("Error reading request Header 1"); // if nothing was read then nothing else can be done for this request
-					return;
-				}
-				
-				System.out.println("Received header");
-				System.out.println("\t" + headerLine);
-				
-				// parse the first line of the request
-				Matcher headerMatcher = requestPattern.matcher(headerLine);
-				headerMatcher.matches();
-				String verb = headerMatcher.group(1);
-				String url = headerMatcher.group(2);
-				String version = headerMatcher.group(3);
-				
-				
-				if(verb == null || url == null || version == null)
-					throw new IOException("Erorr reading request header 2");
-
-				
-				// parse out the path from the url
-				URL serverUrl = new URL(url);
-				
-				// build the header
-				String newHeaderLine = new String(verb + " " + serverUrl.getPath() + " HTTP/" + version + "\r\n");
-				
-				System.out.println("New Header:");
-				System.out.println("\t" + newHeaderLine);
-				System.out.println("");
-				
-				// Now that the new header is created open a socket to the host in the url on the port specified
-				
-				int port;
-				if((port = serverUrl.getPort()) == -1)
-					port = 80;
-				try{ 
-					serverSocket = new Socket(serverUrl.getHost(), port);
-				} catch (IOException e) {
-					PrintWriter out = new PrintWriter(cos, true);
-					out.println("Proxy server can't connect to " + serverUrl.getHost() + ":" + port + "\n" + e);
-					out.close();
-					clientSocket.close();
-					return;
-				}
-				
-				// setup the input and output streams for the server
-				InputStream sis = serverSocket.getInputStream();
-				OutputStream sos = serverSocket.getOutputStream();
-				
-				// write the new header line to the server
-				sos.write(newHeaderLine.getBytes());
-				sos.flush();
-				
-				// stores the number from the Content-length field of the header
-				// should tell the proxy if there is extra data such as in a POST request
-				int contentLen = 0;
-				
-				// get the rest of the header
-				while(true)
-				{
-					headerLine = cbr.readLine(); // this will block until a full line is available
-					
-					// debugging purposes
-					System.out.println("\t" + headerLine);
-					
-					// see if this is the content-length line
-					Matcher contentLengthMatcher = contentLengthPattern.matcher(headerLine);
-					if(contentLengthMatcher.matches())
+				// keep looping until the 
+				while(true) {
+					if((headerLine = cbr.readLine()) == null) // null if stream is closed. NOTE: This will block until something is read or stream is closed
 					{
-						// convert the content length number from a string to an integer
-						contentLen = Integer.parseInt(contentLengthMatcher.group(1));
+						//throw new IOException("Error reading request Header 1"); // if nothing was read then nothing else can be done for this request
+						return;
 					}
 					
-					if(headerLine.matches("^Proxy-Connection:.*"))
-					{
-						System.out.println("Found the proxy-connection line skipping it");
-						continue;
+					//System.out.println("Received header");
+					//System.out.println("\t" + headerLine);
+					
+					// parse the first line of the request
+					Matcher headerMatcher = requestPattern.matcher(headerLine);
+					headerMatcher.matches();
+					String verb = headerMatcher.group(1);
+					String url = headerMatcher.group(2);
+					String version = headerMatcher.group(3);
+					
+					
+					if(verb == null || url == null || version == null)
+						throw new IOException("Erorr reading request header 2");
+	
+					
+					// parse out the path from the url
+					URL serverUrl = new URL(url);
+					
+					String requestUrl;
+					if(serverUrl.getQuery() != null)
+						requestUrl = serverUrl.getPath() + "?" + serverUrl.getQuery();
+					else
+						requestUrl = serverUrl.getPath();
+					
+					// build the header
+					String newHeaderLine = new String(verb + " " + requestUrl + " HTTP/" + version + "\r\n");
+					
+					//System.out.println("New Header:");
+					//System.out.println("\t" + newHeaderLine);
+					//System.out.println("");
+					
+					// Now that the new header is created open a socket to the host in the url on the port specified
+					
+					int port;
+					if((port = serverUrl.getPort()) == -1)
+						port = 80;
+					try{ 
+						serverSocket = new Socket(serverUrl.getHost(), port);
+					} catch (IOException e) {
+						PrintWriter out = new PrintWriter(cos, true);
+						out.println("Proxy server can't connect to " + serverUrl.getHost() + ":" + port + "\n" + e);
+						out.close();
+						clientSocket.close();
+						return;
 					}
-					else if(headerLine.equals(""))
+					
+					// setup the input and output streams for the server
+					InputStream sis = serverSocket.getInputStream();
+					OutputStream sos = serverSocket.getOutputStream();
+					
+					System.out.print(newHeaderLine);
+					// write the new header line to the server
+					sos.write(newHeaderLine.getBytes());
+					sos.flush();
+					
+					// stores the number from the Content-length field of the header
+					// should tell the proxy if there is extra data such as in a POST request
+					int contentLen = 0;
+					
+					// get the rest of the header
+					while(true)
 					{
-						sos.write("Connection: close\r\n\r\n".getBytes());
-						//sos.write("\r\n".getBytes());
-						sos.flush();
+						headerLine = cbr.readLine(); // this will block until a full line is available
 						
-						// would get the next n bytes where n is the number in content-length
-						System.out.println("Reached end of header");
-						System.out.println("Content-length: " + contentLen);
-						if(contentLen > 0)
+						// debugging purposes
+						//System.out.println("\t" + headerLine);
+						
+						// see if this is the content-length line
+						Matcher contentLengthMatcher = contentLengthPattern.matcher(headerLine);
+						if(contentLengthMatcher.matches())
 						{
-							while((bytesRead = cis.read(request)) != -1 && contentLen > 0)
-							{
-								System.out.println("Read " + bytesRead);
-								sos.write(request);
-								sos.flush();
-								contentLen -= bytesRead;
-								System.out.println("Content length remaining: " + contentLen);
-							}
+							// convert the content length number from a string to an integer
+							contentLen = Integer.parseInt(contentLengthMatcher.group(1));
 						}
 						
-						// all done reading the request
-						System.out.println();
-						break;
+						if(headerLine.matches("^Proxy-Connection:.*"))
+						{
+							//System.out.println("Found the proxy-connection line skipping it");
+							continue;
+						}
+						else if(headerLine.equals(""))
+						{
+							System.out.print("Connection: close\r\n\r\n");
+							sos.write("Connection: close\r\n\r\n".getBytes());
+							//sos.write("\r\n".getBytes());
+							sos.flush();
+							
+							// would get the next n bytes where n is the number in content-length
+							// this should handle POST requests
+							//System.out.println("Reached end of header");
+							//System.out.println("Content-length: " + contentLen);
+							if(contentLen > 0)
+							{
+								while((bytesRead = cis.read(request)) != -1 )
+								{
+									System.out.println("Read " + bytesRead);
+									sos.write(request, 0, bytesRead);
+									sos.flush();
+									contentLen -= bytesRead;
+									//System.out.println("Content length remaining: " + contentLen);
+									if(contentLen <= 0)
+									{
+										//System.out.println("No more content so stopping");
+										break;
+									}
+										
+								}
+							}
+							
+							// all done reading the request
+							System.out.println();
+							break;
+						}
+						else
+						{
+							// if it isn't a special line then
+							// simply copy what was received to the server
+							System.out.print(headerLine + "\r\n");
+							sos.write((headerLine + "\r\n").getBytes());
+							sos.flush();
+						}
 					}
-					else
-					{
-						// if it isn't the end of the header then
-						// simply copy what was received to the server
-						sos.write((headerLine + "\r\n").getBytes());
-						sos.flush();
-					}
+	
+					
+					Server2ClientThread s2c = new Server2ClientThread(serverSocket, cos);
+					s2c.start();
 				}
-				
-				try{
-					while((bytesRead = sis.read(reply)) != -1)
-					{
-						System.out.println("Received " + bytesRead + " bytes");
-						//System.out.println(new String(reply, 0, bytesRead));
-						cos.write(reply);
-						cos.flush();
-					}
-				} catch (IOException e) {
-					System.err.println("Exception 1\n\t" + e);
-				}
-				
-				clientSocket.close();
-				serverSocket.close();
-
-				return;
 			} catch (IOException e) {
 				System.err.println(e);
 			} finally { // clean up the sockets and streams
@@ -232,55 +238,34 @@ public class Proxy {
 		}
 	}
 	
-	private static Socket parseHeader(String header) throws IOException
+	public static class Server2ClientThread extends Thread
 	{
-		String hostname;
-		int port;
-		int start, end, colon; // markers for start of hostname, end of hostname and start of port (if present)
-		if((start = header.indexOf("Host: ")) < 0)
-			return null;
-		else
-			start += 6;
+		private final Socket serverSocket;
+		private final OutputStream cos;
 		
-		if((end = header.indexOf('\n', start)) < 0)
-			return null;
-		
-		colon = header.indexOf(':', start);
-		
-		
-		if(colon >= end)
+		public Server2ClientThread(Socket s, OutputStream os)
 		{
-			// no port specified
-			hostname = header.substring(start, end-1);
-			port = 80;
-		}
-		else
-		{
-			// port specified
-			hostname = header.substring(start, colon);
-			port = Integer.parseInt(header.substring(colon+1, end-1));
+			serverSocket = s;
+			cos = os;
 		}
 		
-		System.out.println("Connecting to " + hostname + " on port " + port);
-		
-		InetAddress hostAddress = lookupDns(hostname);
-		
-		return new Socket(hostAddress, port);
-	}
-	
-	private static InetAddress lookupDns(String hostname) throws UnknownHostException
-	{
-		InetAddress hostAddress = null;
-		
-		// if the DNS record is in the cache return it
-		if((hostAddress = dnsCache.get(hostname)) != null)
-			return hostAddress;
-		
-		// DNS records wasn't in the cache
-		// lookup DNS
-		hostAddress = InetAddress.getByName(hostname);
-		// add the DNS record to the cache for future use
-		dnsCache.put(hostname, hostAddress);
-		return hostAddress;
+		public void run() {
+			try {
+				InputStream sis = serverSocket.getInputStream();
+				int bytesRead;
+				byte[] reply = new byte[4096];
+				while((bytesRead = sis.read(reply)) != -1)
+				{
+					cos.write(reply, 0, bytesRead);
+					cos.flush();
+				}
+			} catch (IOException e) {
+				System.err.println(e);
+			}
+			
+			try {
+				serverSocket.close();
+			} catch (IOException e) {}
+		}
 	}
 }
