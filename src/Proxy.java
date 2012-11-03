@@ -8,7 +8,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
-import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 
 public class Proxy {
 	
-	public final static int PORT = 9090;
+	public final static int PORT = 5030;
 	
 	public final static ConcurrentMap<String, InetAddress> dnsCache = new ConcurrentHashMap<String, InetAddress>();
 	
@@ -188,25 +188,25 @@ public class Proxy {
 							// this should handle POST requests
 							//System.out.println("Reached end of header");
 							//System.out.println("Content-length: " + contentLen);
-							if(contentLen > 0)
+							//System.out.println("Content-length: " + contentLen);
+							char[] cbuf = new char[4096];
+							int charsRead = 0;
+							String postdata;
+							while(contentLen > 0)
 							{
-								while((bytesRead = cis.read(request)) != -1 )
+								if((charsRead = cbr.read(cbuf, 0, request.length)) != -1)
 								{
-									System.out.println("Read " + bytesRead);
-									sos.write(request, 0, bytesRead);
+									postdata = new String(Arrays.copyOfRange(cbuf, 0, charsRead));
+									System.out.print(postdata);
+									sos.write(postdata.getBytes());
 									sos.flush();
-									contentLen -= bytesRead;
-									//System.out.println("Content length remaining: " + contentLen);
-									if(contentLen <= 0)
-									{
-										//System.out.println("No more content so stopping");
-										break;
-									}
-										
+									contentLen -= charsRead;
+									//System.out.println("\nContent length remaining: " + contentLen);
 								}
 							}
 							
 							// all done reading the request
+							System.out.println("\n\nFinished reading header");
 							System.out.println();
 							break;
 						}
