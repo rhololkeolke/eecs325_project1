@@ -4,22 +4,17 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
 import java.util.Arrays;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Proxy {
 	
 	public final static int PORT = 5030;
-	
-	public final static ConcurrentMap<String, InetAddress> dnsCache = new ConcurrentHashMap<String, InetAddress>();
-	
+		
 	public static void main(String[] args) {
 		
 		System.out.println("Starting proxy on port " + PORT);
@@ -72,13 +67,10 @@ public class Proxy {
 		}
 		
 		public void run() {
-			int bytesRead = 0;
 			final byte[] request = new byte[4096];
-			byte[] reply = new byte[4096];
 			
 			Socket serverSocket = null;
 			try {
-				final InputStream cis = clientSocket.getInputStream(); // this is used for any data not in the header
 				final OutputStream cos = clientSocket.getOutputStream(); 
 				
 				/*
@@ -93,12 +85,10 @@ public class Proxy {
 				while(true) {
 					if((headerLine = cbr.readLine()) == null) // null if stream is closed. NOTE: This will block until something is read or stream is closed
 					{
-						//throw new IOException("Error reading request Header 1"); // if nothing was read then nothing else can be done for this request
 						return;
 					}
 					
-					//System.out.println("Received header");
-					//System.out.println("\t" + headerLine);
+
 					
 					// parse the first line of the request
 					Matcher headerMatcher = requestPattern.matcher(headerLine);
@@ -109,7 +99,7 @@ public class Proxy {
 					
 					
 					if(verb == null || url == null || version == null)
-						throw new IOException("Erorr reading request header 2");
+						throw new IOException("Error reading request header");
 	
 					
 					// parse out the path from the url
@@ -123,17 +113,15 @@ public class Proxy {
 					
 					// build the header
 					String newHeaderLine = new String(verb + " " + requestUrl + " HTTP/" + version + "\r\n");
-					
-					//System.out.println("New Header:");
-					//System.out.println("\t" + newHeaderLine);
-					//System.out.println("");
-					
+
 					// Now that the new header is created open a socket to the host in the url on the port specified
 					
+					// set the port number
 					int port;
 					if((port = serverUrl.getPort()) == -1)
 						port = 80;
-					try{ 
+					
+					try{
 						serverSocket = new Socket(serverUrl.getHost(), port);
 					} catch (IOException e) {
 						PrintWriter out = new PrintWriter(cos, true);
@@ -144,7 +132,6 @@ public class Proxy {
 					}
 					
 					// setup the input and output streams for the server
-					InputStream sis = serverSocket.getInputStream();
 					OutputStream sos = serverSocket.getOutputStream();
 					
 					System.out.print(newHeaderLine);
@@ -161,9 +148,6 @@ public class Proxy {
 					{
 						headerLine = cbr.readLine(); // this will block until a full line is available
 						
-						// debugging purposes
-						//System.out.println("\t" + headerLine);
-						
 						// see if this is the content-length line
 						Matcher contentLengthMatcher = contentLengthPattern.matcher(headerLine);
 						if(contentLengthMatcher.matches())
@@ -172,9 +156,11 @@ public class Proxy {
 							contentLen = Integer.parseInt(contentLengthMatcher.group(1));
 						}
 						
+						// according to wikipedia the proxy-connection header isn't actually
+						// a valid header. However, many browsers will use it
+						// since it isn't supposed to be valid I have removed it when present.
 						if(headerLine.matches("^Proxy-Connection:.*"))
 						{
-							//System.out.println("Found the proxy-connection line skipping it");
 							continue;
 						}
 						else if(headerLine.equals(""))
@@ -184,11 +170,8 @@ public class Proxy {
 							//sos.write("\r\n".getBytes());
 							sos.flush();
 							
-							// would get the next n bytes where n is the number in content-length
+							// would get the next n chars where n is the number in content-length
 							// this should handle POST requests
-							//System.out.println("Reached end of header");
-							//System.out.println("Content-length: " + contentLen);
-							//System.out.println("Content-length: " + contentLen);
 							char[] cbuf = new char[4096];
 							int charsRead = 0;
 							String postdata;
@@ -201,7 +184,6 @@ public class Proxy {
 									sos.write(postdata.getBytes());
 									sos.flush();
 									contentLen -= charsRead;
-									//System.out.println("\nContent length remaining: " + contentLen);
 								}
 							}
 							
@@ -220,7 +202,8 @@ public class Proxy {
 						}
 					}
 	
-					
+					// this thread will listen for the server's response and send it 
+					// back to the client
 					Server2ClientThread s2c = new Server2ClientThread(serverSocket, cos);
 					s2c.start();
 				}
@@ -238,6 +221,8 @@ public class Proxy {
 		}
 	}
 	
+	// This class handles listening for data from the server
+	// and passing it back to the client
 	public static class Server2ClientThread extends Thread
 	{
 		private final Socket serverSocket;
